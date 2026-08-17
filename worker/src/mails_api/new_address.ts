@@ -27,7 +27,12 @@ const createNewAddress = async (c: Context<HonoCustomType>) => {
     }
 
     // eslint-disable-next-line prefer-const
-    let { name, domain, cf_token, enableRandomSubdomain } = await c.req.json();
+    let { name, domain, cf_token, enableRandomSubdomain, enablePrefix } = await c.req.json();
+    // Preserve the historical API default when callers omit the field while
+    // allowing the UI to explicitly opt out of the configured prefix.
+    const usePrefix = enablePrefix === undefined
+        ? true
+        : getBooleanValue(enablePrefix);
     // check cf turnstile
     try {
         await checkCfTurnstile(c, cf_token);
@@ -59,7 +64,7 @@ const createNewAddress = async (c: Context<HonoCustomType>) => {
             || 'web:unknown';
         const res = await newAddress(c, {
             name, domain,
-            enablePrefix: true,
+            enablePrefix: usePrefix,
             enableRandomSubdomain: getBooleanValue(enableRandomSubdomain),
             checkLengthByConfig: true,
             addressPrefix,

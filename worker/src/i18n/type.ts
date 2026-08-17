@@ -178,4 +178,12 @@ export type LocaleMessages = {
     TgAiExtractServiceLinkMsg: string
     TgAiExtractSubscriptionLinkMsg: string
     TgAiExtractOtherLinkMsg: string
+    TgMailTitleMsg: string
+    TgNewMailTitleMsg: string
+    TgMailFromLabel: string
+    TgMailToLabel: string
+    TgMailSubjectLabel: string
+    TgMailSummaryLabel: string
+    TgMailCodeLabel: string
+    TgMailNoSummaryMsg: string
 }

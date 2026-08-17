@@ -19,7 +19,7 @@ const props = defineProps({
     },
     newAddressPath: {
         type: Function,
-        default: async (address_name, domain, cf_token, enableRandomSubdomain) => {
+        default: async (address_name, domain, cf_token, enableRandomSubdomain, enablePrefix) => {
             return await api.fetch("/api/new_address", {
                 method: "POST",
                 body: JSON.stringify({
@@ -27,6 +27,7 @@ const props = defineProps({
                     domain: domain,
                     cf_token: cf_token,
                     enableRandomSubdomain: enableRandomSubdomain,
+                    enablePrefix: enablePrefix,
                 }),
             });
         },
@@ -48,6 +49,7 @@ const credential = ref('')
 const emailName = ref("")
 const emailDomain = ref("")
 const cfToken = ref("")
+const enablePrefix = ref(false)
 const enableRandomSubdomain = ref(false)
 const loginCfToken = ref("")
 const loginTurnstileRef = ref(null)
@@ -171,7 +173,8 @@ const newEmail = async () => {
             nameToSend,
             emailDomain.value,
             cfToken.value,
-            enableRandomSubdomain.value
+            enableRandomSubdomain.value,
+            enablePrefix.value
         );
         jwt.value = res["jwt"];
         addressPassword.value = res["password"] || '';
@@ -309,8 +312,11 @@ onMounted(async () => {
                             style="margin-bottom: 10px;">
                             {{ t('generateName') }}
                         </n-button>
+                        <n-form-item-row v-if="addressPrefix" :label="t('enablePrefix')">
+                            <n-switch v-model:value="enablePrefix" :round="false" />
+                        </n-form-item-row>
                         <n-input-group>
-                            <n-input-group-label v-if="addressPrefix">
+                            <n-input-group-label v-if="enablePrefix && addressPrefix">
                                 {{ addressPrefix }}
                             </n-input-group-label>
                             <n-input v-if="!openSettings.disableCustomAddressName" v-model:value="emailName" show-count

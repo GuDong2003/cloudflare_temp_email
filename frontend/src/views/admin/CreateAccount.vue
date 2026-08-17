@@ -13,7 +13,9 @@ const message = useMessage()
 
 const { t } = useScopedI18n('views.admin.CreateAccount')
 
-const enablePrefix = ref(true)
+// Prefixes are opt-in. The configured PREFIX remains available when the
+// administrator explicitly enables this switch.
+const enablePrefix = ref(false)
 const enableRandomSubdomain = ref(false)
 const emailName = ref("")
 const emailDomain = ref("")
@@ -61,9 +63,6 @@ const newEmail = async () => {
 }
 
 onMounted(async () => {
-    if (openSettings.prefix) {
-        enablePrefix.value = true
-    }
     emailDomain.value = openSettings.value.domains?.[0]?.value || ""
 })
 </script>

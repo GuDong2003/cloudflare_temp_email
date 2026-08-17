@@ -180,6 +180,14 @@ const messages: LocaleMessages = {
     TgAiExtractServiceLinkMsg: "Service link",
     TgAiExtractSubscriptionLinkMsg: "Subscription link",
     TgAiExtractOtherLinkMsg: "Other link",
+    TgMailTitleMsg: "Verification email",
+    TgNewMailTitleMsg: "New email",
+    TgMailFromLabel: "From:",
+    TgMailToLabel: "To:",
+    TgMailSubjectLabel: "Subject:",
+    TgMailSummaryLabel: "Summary:",
+    TgMailCodeLabel: "Verification code",
+    TgMailNoSummaryMsg: "The body is empty. Open the web app to view the full email.",
 }
 
 export default messages;

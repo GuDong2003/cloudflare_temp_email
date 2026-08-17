@@ -2502,6 +2502,10 @@ export const MESSAGE_REGISTRY = {
       "en": "Email and password are required",
       "zh": "邮箱和密码不能为空"
     },
+    "enablePrefix": {
+      "en": "Enable Prefix",
+      "zh": "启用前缀"
+    },
     "enableRandomSubdomain": {
       "en": "Use Random Subdomain",
       "zh": "启用随机子域名"

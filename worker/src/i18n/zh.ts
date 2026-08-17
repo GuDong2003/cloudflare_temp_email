@@ -180,6 +180,14 @@ const messages: LocaleMessages = {
     TgAiExtractServiceLinkMsg: "服务链接",
     TgAiExtractSubscriptionLinkMsg: "订阅链接",
     TgAiExtractOtherLinkMsg: "其他链接",
+    TgMailTitleMsg: "验证邮件",
+    TgNewMailTitleMsg: "新邮件",
+    TgMailFromLabel: "发件人:",
+    TgMailToLabel: "收件人:",
+    TgMailSubjectLabel: "主题:",
+    TgMailSummaryLabel: "摘要:",
+    TgMailCodeLabel: "验证码",
+    TgMailNoSummaryMsg: "正文为空，请打开网页查看完整邮件",
 }
 
 export default messages;

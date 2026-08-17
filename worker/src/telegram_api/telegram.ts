@@ -13,6 +13,7 @@ import { resolveRawEmail } from "../gzip";
 import { UserFromGetMe } from "telegraf/types";
 import i18n from "../i18n";
 import { LocaleMessages } from "../i18n/type";
+import { extractCode } from "../email/extract_code";
 import type { ExtractResult, RawMailRow } from "../models";
 
 
@@ -75,12 +76,65 @@ const COMMANDS = [
     },
 ]
 
-const formatAiExtractForTelegram = (
-    msgs: LocaleMessages,
+const escapeTelegramHtml = (value: unknown): string => String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+const decodeHtmlEntities = (text: string): string => {
+    const entities: Record<string, string> = {
+        amp: "&",
+        lt: "<",
+        gt: ">",
+        quot: '"',
+        apos: "'",
+        nbsp: " ",
+    };
+    return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]+);/gi, (match, entity: string) => {
+        const normalized = entity.toLowerCase();
+        if (normalized.startsWith("#x")) {
+            const value = Number.parseInt(normalized.slice(2), 16);
+            return Number.isFinite(value) && value >= 0 && value <= 0x10ffff
+                ? String.fromCodePoint(value)
+                : match;
+        }
+        if (normalized.startsWith("#")) {
+            const value = Number.parseInt(normalized.slice(1), 10);
+            return Number.isFinite(value) && value >= 0 && value <= 0x10ffff
+                ? String.fromCodePoint(value)
+                : match;
+        }
+        return entities[normalized] ?? match;
+    });
+};
+
+const htmlToTelegramText = (html: string): string => decodeHtmlEntities(
+    html
+        .replace(/<\s*(script|style|head|svg)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, " ")
+        .replace(/<!--[\s\S]*?-->/g, " ")
+        .replace(/<a\b[^>]*\bhref=(['"])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi, " $3 $2 ")
+        .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+        .replace(/<\/\s*(p|div|tr|td|th|li|table|section|article|header|footer|h[1-6])\s*>/gi, "\n")
+        .replace(/<[^>]+>/g, " ")
+)
+    .replace(/[ \t\r\f\v]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const isHtmlPlaceholder = (text: string): boolean => {
+    const normalized = text.trim();
+    return /(?:please\s+)?(?:open|view)\s+(?:the\s+)?html\s+version/i.test(normalized)
+        || /(?:请|点击).*(?:HTML|浏览器).*(?:版本|查看)/i.test(normalized);
+};
+
+const parseAiExtract = (
     aiExtract?: ExtractResult | string | null
-): string => {
+): ExtractResult | null => {
     if (!aiExtract) {
-        return "";
+        return null;
     }
 
     try {
@@ -90,39 +144,40 @@ const formatAiExtractForTelegram = (
         }
     } catch (error) {
         console.warn("Failed to parse AI extraction metadata", error);
-        return "";
+        return null;
     }
 
     if (!aiExtract || typeof aiExtract !== "object") {
-        return "";
+        return null;
     }
 
-    const labels: Record<Exclude<ExtractResult["type"], "none">, string> = {
-        auth_code: msgs.TgAiExtractAuthCodeMsg,
-        auth_link: msgs.TgAiExtractAuthLinkMsg,
-        service_link: msgs.TgAiExtractServiceLinkMsg,
-        subscription_link: msgs.TgAiExtractSubscriptionLinkMsg,
-        other_link: msgs.TgAiExtractOtherLinkMsg,
-    };
-    const label = labels[aiExtract.type as keyof typeof labels];
     const result = typeof aiExtract.result === "string"
-        ? aiExtract.result.replace(/\s+/g, " ").trim().slice(0, 600)
+        ? aiExtract.result.replace(/\s+/g, " ").trim()
         : "";
-    if (!result) {
-        return "";
-    }
+    return result && aiExtract.type !== "none"
+        ? { ...aiExtract, result: result.slice(0, 600) }
+        : null;
+}
 
-    if (!label) {
-        return "";
-    }
-
-    const resultText = typeof aiExtract.result_text === "string"
-        ? aiExtract.result_text.replace(/\s+/g, " ").trim().slice(0, 120)
-        : "";
-    const displayText = aiExtract.type !== "auth_code" && resultText && resultText !== result
-        ? ` (${resultText})`
-        : "";
-    return `${msgs.TgAiExtractResultMsg}\n${label}: ${result}${displayText}\n\n`;
+const summarizeTelegramMail = (text: string, code?: string | null): string => {
+    const codeValue = code?.trim();
+    const lines = text
+        .replace(/\r/g, "")
+        .split(/\n+/)
+        .map(line => {
+            let normalized = line.replace(/\s+/g, " ").trim();
+            if (codeValue) {
+                normalized = normalized.replace(new RegExp(escapeRegExp(codeValue), "gi"), "");
+            }
+            const footerIndex = normalized.search(/\b(?:unsubscribe|manage\s+(?:your\s+)?preferences|email\s+preferences|update\s+preferences)\b/i);
+            if (footerIndex >= 0) normalized = normalized.slice(0, footerIndex);
+            return normalized.replace(/\s+([,.;:!?])/g, "$1").trim();
+        })
+        .filter(Boolean)
+        .filter(line => !/^(?:unsubscribe|manage\s+(?:your\s+)?preferences|email\s+preferences)$/i.test(line));
+    const summary = lines.join(" ").trim();
+    if (!summary) return "";
+    return summary.length > 360 ? `${summary.slice(0, 360).trim()}…` : summary;
 }
 
 export const getTelegramCommands = (c: Context<HonoCustomType>) => {
@@ -442,18 +497,53 @@ const parseMail = async (
     }
     try {
         const parsedEmail = await commonParseMail(parsedEmailContext);
-        let parsedText = parsedEmail?.text || "";
-        if (parsedText.length && parsedText.length > 1000) {
-            parsedText = parsedEmail?.text.substring(0, 1000) + `\n\n...\n${msgs.TgMsgTooLongMsg}`;
+        const plainText = parsedEmail?.text?.trim() || "";
+        const htmlText = parsedEmail?.html ? htmlToTelegramText(parsedEmail.html) : "";
+        const plainCode = extractCode(plainText);
+        const htmlCode = extractCode(htmlText);
+        const parsedText = htmlText && (
+            !plainText
+            || isHtmlPlaceholder(plainText)
+            || (!plainCode && !!htmlCode)
+        ) ? htmlText : plainText;
+        const extracted = parseAiExtract(aiExtract);
+        const code = extracted?.type === "auth_code"
+            ? extracted.result.replace(/\s+/g, "").slice(0, 80)
+            : extractCode(parsedText) || htmlCode || plainCode;
+        const summary = summarizeTelegramMail(parsedText, code)
+            || msgs.TgMailNoSummaryMsg;
+        const title = code ? msgs.TgMailTitleMsg : msgs.TgNewMailTitleMsg;
+        const lines = [
+            `📨 <b>${escapeTelegramHtml(title)}</b>`,
+            "",
+            `<b>${escapeTelegramHtml(msgs.TgMailFromLabel)}</b> ${escapeTelegramHtml(parsedEmail?.sender || msgs.TgNoSenderMsg)}`,
+            `<b>${escapeTelegramHtml(msgs.TgMailToLabel)}</b> ${escapeTelegramHtml(address)}`,
+            `<b>${escapeTelegramHtml(msgs.TgMailSubjectLabel)}</b> ${escapeTelegramHtml(parsedEmail?.subject || "")}`,
+            "",
+            `<b>${escapeTelegramHtml(msgs.TgMailSummaryLabel)}</b> ${escapeTelegramHtml(summary)}`,
+        ];
+        if (code) {
+            lines.push(
+                "",
+                `🔐 <b>${escapeTelegramHtml(msgs.TgMailCodeLabel)}</b>`,
+                `<pre>${escapeTelegramHtml(code)}</pre>`,
+            );
+        } else if (extracted) {
+            const labels: Record<Exclude<ExtractResult["type"], "none">, string> = {
+                auth_code: msgs.TgAiExtractAuthCodeMsg,
+                auth_link: msgs.TgAiExtractAuthLinkMsg,
+                service_link: msgs.TgAiExtractServiceLinkMsg,
+                subscription_link: msgs.TgAiExtractSubscriptionLinkMsg,
+                other_link: msgs.TgAiExtractOtherLinkMsg,
+            };
+            const label = labels[extracted.type as keyof typeof labels];
+            if (label) {
+                lines.push("", `<b>${escapeTelegramHtml(label)}</b> ${escapeTelegramHtml(extracted.result)}`);
+            }
         }
         return {
-            isHtml: false,
-            mail: formatAiExtractForTelegram(msgs, aiExtract)
-                + `From: ${parsedEmail?.sender || msgs.TgNoSenderMsg}\n`
-                + `To: ${address}\n`
-                + (created_at ? `Date: ${created_at}\n` : "")
-                + `Subject: ${parsedEmail?.subject}\n`
-                + `Content:\n${parsedText || msgs.TgParseFailedViewInAppMsg}`
+            isHtml: true,
+            mail: lines.join("\n")
         };
     } catch (e) {
         return {
@@ -498,6 +588,7 @@ export async function sendMailToTelegram(
             buttons.push(Markup.button.webApp(msgs.TgViewMailBtnMsg, url.toString()));
         }
         await bot.telegram.sendMessage(targetUserId, mail, {
+            parse_mode: "HTML",
             ...Markup.inlineKeyboard([...buttons])
         });
         // send attachments via native fetch (telegraf multipart upload is incompatible with CF Workers)
